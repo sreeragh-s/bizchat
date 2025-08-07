@@ -84,7 +84,7 @@ program
 program
   .command('chat', { isDefault: true })
   .description('Start chat session')
-  .option('-h, --host <host>', 'chat server hostname', 'localhost:8787')
+  .option('-h, --host <host>', 'chat server hostname', 'https://biz-chat-server.sreeragh-bizmo.workers.dev')
   .option('-u, --username <username>', 'your username (overrides global config)')
   .option('-r, --room <room>', 'room to join')
   .action(async (options) => {
