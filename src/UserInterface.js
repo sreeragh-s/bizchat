@@ -16,10 +16,10 @@ export class UserInterface extends EventEmitter {
     this.maxMessages = 500;
     this.inputMode = false;
     
-    // Scrolling state
-    this.messageScrollOffset = 0; // How many lines scrolled up from bottom
-    this.maxScrollOffset = 0;
-
+    // New simplified scrolling state
+    this.viewMode = 'normal'; // 'normal' or 'scrolling'
+    this.scrollPosition = 0; // Number of messages from the bottom (0 = bottom, 1 = one message up, etc.)
+    
     // User suggestion state
     this.showingSuggestions = false;
     this.userSuggestions = [];
@@ -42,7 +42,6 @@ export class UserInterface extends EventEmitter {
     // Handle terminal resize
     term.on('resize', () => {
       if (this.isActive) {
-        this.recalculateScrollLimits();
         this.render();
       }
     });
@@ -78,7 +77,7 @@ export class UserInterface extends EventEmitter {
         return;
       }
       
-      // Handle scrolling keys when not in input mode
+      // Handle scrolling keys
       switch (name) {
         case 'UP':
           this.scrollUp();
@@ -102,68 +101,84 @@ export class UserInterface extends EventEmitter {
     });
   }
 
+  // New simplified scroll methods
   scrollUp() {
-    if (this.messageScrollOffset < this.maxScrollOffset) {
-      this.messageScrollOffset += 1;
+    const maxScroll = Math.max(0, this.messages.length - this.getVisibleMessageCount());
+    if (this.scrollPosition < maxScroll) {
+      this.scrollPosition++;
+      this.viewMode = 'scrolling';
       this.render();
     }
   }
 
   scrollDown() {
-    if (this.messageScrollOffset > 0) {
-      this.messageScrollOffset -= 1;
+    if (this.scrollPosition > 0) {
+      this.scrollPosition--;
+      if (this.scrollPosition === 0) {
+        this.viewMode = 'normal';
+      }
       this.render();
     }
   }
 
   scrollPageUp() {
-    const { height } = term;
-    const messageAreaHeight = height - 6; // Adjust for headers and input
-    const scrollAmount = Math.min(messageAreaHeight - 2, this.maxScrollOffset - this.messageScrollOffset);
-    this.messageScrollOffset += scrollAmount;
+    const pageSize = Math.max(1, this.getVisibleMessageCount() - 1);
+    const maxScroll = Math.max(0, this.messages.length - this.getVisibleMessageCount());
+    this.scrollPosition = Math.min(maxScroll, this.scrollPosition + pageSize);
+    this.viewMode = 'scrolling';
     this.render();
   }
 
   scrollPageDown() {
-    const { height } = term;
-    const messageAreaHeight = height - 6;
-    const scrollAmount = Math.min(messageAreaHeight - 2, this.messageScrollOffset);
-    this.messageScrollOffset -= scrollAmount;
+    const pageSize = Math.max(1, this.getVisibleMessageCount() - 1);
+    this.scrollPosition = Math.max(0, this.scrollPosition - pageSize);
+    if (this.scrollPosition === 0) {
+      this.viewMode = 'normal';
+    }
     this.render();
   }
 
   scrollToTop() {
-    this.messageScrollOffset = this.maxScrollOffset;
+    const maxScroll = Math.max(0, this.messages.length - this.getVisibleMessageCount());
+    this.scrollPosition = maxScroll;
+    this.viewMode = 'scrolling';
     this.render();
   }
 
   scrollToBottom() {
-    this.messageScrollOffset = 0;
+    this.scrollPosition = 0;
+    this.viewMode = 'normal';
     this.render();
   }
 
-  recalculateScrollLimits() {
-    const { width, height } = term;
-    const headerHeight = this.updateStatus ? 4 : 3; // Adjust for update status
+  // Calculate how many messages can fit in the display area
+  getVisibleMessageCount() {
+    const { height } = term;
+    const headerHeight = this.updateStatus ? 4 : 3;
     const inputHeight = 3;
     const contentHeight = height - headerHeight - inputHeight;
-    const messageAreaWidth = Math.floor(width * 0.75);
-    const messageDisplayHeight = contentHeight - 2;
+    const messageDisplayHeight = contentHeight - 2; // Subtract for messages header and border
     
-    // Calculate total lines needed for all messages
-    let totalLines = 0;
-    this.messages.forEach(msg => {
-      const lines = this.calculateMessageLines(msg, messageAreaWidth - 2);
-      totalLines += lines;
-    });
-    
-    this.maxScrollOffset = Math.max(0, totalLines - messageDisplayHeight);
+    // Estimate messages that can fit (assuming average 2 lines per message)
+    // This is a conservative estimate to ensure we don't miss messages
+    return Math.max(1, Math.floor(messageDisplayHeight / 2));
   }
 
-  calculateMessageLines(msg, maxWidth) {
-    const formattedMsg = this.formatMessage(msg, maxWidth, false); // Don't truncate for calculation
-    const plainText = this.stripAnsiCodes(formattedMsg);
-    return Math.ceil(plainText.length / maxWidth) || 1;
+  // Calculate which messages should be displayed
+  getMessagesToDisplay() {
+    const visibleCount = this.getVisibleMessageCount() * 2; // Allow for multi-line messages
+    const totalMessages = this.messages.length;
+    
+    if (this.viewMode === 'normal' || this.scrollPosition === 0) {
+      // Show the most recent messages
+      const startIndex = Math.max(0, totalMessages - visibleCount);
+      return this.messages.slice(startIndex);
+    } else {
+      // Show messages based on scroll position
+      const endIndex = totalMessages - this.scrollPosition;
+      const startIndex = Math.max(0, endIndex - visibleCount);
+      return this.messages.slice(startIndex, endIndex);
+    }
   }
 
   stripAnsiCodes(str) {
@@ -268,9 +283,6 @@ export class UserInterface extends EventEmitter {
     
     // Input area
     this.renderInputPrompt();
-    
-    // Recalculate scroll limits after render
-    this.recalculateScrollLimits();
   }
 
   renderHeader() {
@@ -327,45 +339,39 @@ export class UserInterface extends EventEmitter {
     term.bold.blue('Messages');
     
     // Scroll indicator
-    if (this.messageScrollOffset > 0) {
-      term.moveTo(x + width - 15, y);
-      term.yellow(`↑${this.messageScrollOffset} lines`);
+    if (this.viewMode === 'scrolling' && this.scrollPosition > 0) {
+      term.moveTo(x + width - 20, y);
+      term.yellow(`↑${this.scrollPosition} messages`);
     }
     
     term.moveTo(x, y + 1);
     term.cyan('─'.repeat(width - 1));
     
-    // Display messages with scrolling
+    // Display messages
     const startY = y + 2;
     const messageDisplayHeight = height - 2;
+    const maxLineWidth = width - 2;
     
-    // Calculate which messages to show based on scroll offset
-    const messagesToRender = this.getMessagesForDisplay(messageDisplayHeight, width - 2);
+    // Get messages to display based on current scroll position
+    const messagesToShow = this.getMessagesToDisplay();
     
-    messagesToRender.forEach((line, index) => {
-      const lineY = startY + index;
-      if (lineY < y + height) {
-        term.moveTo(x, lineY);
+    let currentY = startY;
+    const maxY = startY + messageDisplayHeight - 1;
+    
+    // Render messages from oldest to newest in the visible set
+    for (const message of messagesToShow) {
+      if (currentY > maxY) break;
+      
+      const messageLines = this.formatMessageToLines(message, maxLineWidth);
+      
+      for (const line of messageLines) {
+        if (currentY > maxY) break;
+        
+        term.moveTo(x, currentY);
         term(line);
+        currentY++;
       }
-    });
-  }
-
-  getMessagesForDisplay(displayHeight, maxWidth) {
-    const allLines = [];
-    
-    // Convert all messages to display lines
-    this.messages.forEach(msg => {
-      const lines = this.formatMessageToLines(msg, maxWidth);
-      allLines.push(...lines);
-    });
-    
-    // Apply scroll offset
-    const totalLines = allLines.length;
-    const startIndex = Math.max(0, totalLines - displayHeight - this.messageScrollOffset);
-    const endIndex = Math.max(0, totalLines - this.messageScrollOffset);
-    
-    return allLines.slice(startIndex, endIndex);
+    }
   }
 
   formatMessageToLines(msg, maxWidth) {
@@ -480,37 +486,6 @@ export class UserInterface extends EventEmitter {
     this.updateInputDisplay();
   }
 
-  formatMessage(msg, maxWidth, allowTruncation = true) {
-    const timestamp = `[${msg.timestamp}]`;
-    let content = '';
-    
-    switch (msg.type) {
-      case 'chat':
-        content = `${chalk.green.bold(msg.name)}: ${msg.text}`;
-        break;
-      case 'system':
-        content = chalk.gray(msg.text);
-        break;
-      case 'error':
-        content = chalk.red(msg.text);
-        break;
-      case 'info':
-        content = chalk.cyan(msg.text);
-        break;
-      default:
-        content = msg.text;
-    }
-    
-    const fullMessage = `${chalk.gray(timestamp)} ${content}`;
-    
-    // Only truncate if explicitly allowed (for legacy compatibility)
-    if (allowTruncation && this.stripAnsiCodes(fullMessage).length > maxWidth) {
-      return fullMessage.substring(0, maxWidth - 3) + '...';
-    }
-    
-    return fullMessage;
-  }
-
   addPendingMessage(text) {
     // Add a temporary pending message that will be replaced by the server response
     const pendingMessage = {
@@ -523,7 +498,6 @@ export class UserInterface extends EventEmitter {
     
     this.messages.push(pendingMessage);
     this.trimMessages();
-    this.recalculateScrollLimits();
     // Auto-scroll to bottom when adding pending message
     this.scrollToBottom();
     this.render();
@@ -562,11 +536,13 @@ export class UserInterface extends EventEmitter {
     
     this.trimMessages();
     
-    // Always render after adding a chat message
-    this.render();
-    
-    // Recalculate scroll limits after rendering
-    this.recalculateScrollLimits();
+    // Only auto-scroll to bottom if we're currently at the bottom
+    if (this.viewMode === 'normal') {
+      this.render();
+    } else {
+      // If we're scrolled up, just render without changing scroll position
+      this.render();
+    }
   }
 
   addSystemMessage(text) {
@@ -581,9 +557,6 @@ export class UserInterface extends EventEmitter {
     
     // Always render after adding a system message
     this.render();
-    
-    // Recalculate scroll limits after rendering
-    this.recalculateScrollLimits();
   }
 
   addErrorMessage(text) {
@@ -595,11 +568,11 @@ export class UserInterface extends EventEmitter {
     
     this.trimMessages();
     
-    // Auto-scroll to bottom for error messages
-    if (this.messageScrollOffset === 0) {
+    // Auto-scroll to bottom for error messages only if we're currently at bottom
+    if (this.viewMode === 'normal') {
       this.render();
     } else {
-      this.recalculateScrollLimits();
+      this.render();
     }
   }
 
@@ -612,11 +585,11 @@ export class UserInterface extends EventEmitter {
     
     this.trimMessages();
     
-    // Auto-scroll to bottom for info messages
-    if (this.messageScrollOffset === 0) {
+    // Auto-scroll to bottom for info messages only if we're currently at bottom
+    if (this.viewMode === 'normal') {
       this.render();
     } else {
-      this.recalculateScrollLimits();
+      this.render();
     }
   }
 
@@ -642,7 +615,16 @@ export class UserInterface extends EventEmitter {
 
   trimMessages() {
     if (this.messages.length > this.maxMessages) {
+      const removed = this.messages.length - this.maxMessages;
       this.messages = this.messages.slice(-this.maxMessages);
+      
+      // Adjust scroll position if needed
+      if (this.scrollPosition > 0) {
+        this.scrollPosition = Math.max(0, this.scrollPosition - removed);
+        if (this.scrollPosition === 0) {
+          this.viewMode = 'normal';
+        }
+      }
     }
   }
 
