@@ -42,9 +42,29 @@ export class UserInterface extends EventEmitter {
     // Handle terminal resize
     term.on('resize', () => {
       if (this.isActive) {
+        // When resizing, ensure we stay at the bottom if we were in normal mode
+        // or preserve scroll position appropriately
+        if (this.viewMode === 'normal') {
+          this.scrollToBottom();
+        } else {
+          // Adjust scroll position to account for new terminal size
+          this.adjustScrollPositionForResize();
+        }
         this.render();
       }
     });
+  }
+
+  // New method to handle scroll position adjustment on resize
+  adjustScrollPositionForResize() {
+    const maxScroll = Math.max(0, this.messages.length - this.getVisibleMessageCount());
+    // Ensure scroll position doesn't exceed the new maximum
+    this.scrollPosition = Math.min(this.scrollPosition, maxScroll);
+    
+    // If scroll position becomes 0, switch back to normal mode
+    if (this.scrollPosition === 0) {
+      this.viewMode = 'normal';
+    }
   }
 
   setupInput() {
@@ -159,24 +179,49 @@ export class UserInterface extends EventEmitter {
     const contentHeight = height - headerHeight - inputHeight;
     const messageDisplayHeight = contentHeight - 2; // Subtract for messages header and border
     
-    // Estimate messages that can fit (assuming average 2 lines per message)
-    // This is a conservative estimate to ensure we don't miss messages
-    return Math.max(1, Math.floor(messageDisplayHeight / 2));
+    // Ensure we have at least minimal space for messages
+    if (messageDisplayHeight < 1) {
+      return 1; // Always allow at least one message
+    }
+    
+    // More conservative estimate for small terminals
+    // Use 1.5 lines per message average instead of 2 for better space utilization
+    const avgLinesPerMessage = messageDisplayHeight < 10 ? 1.2 : 1.5;
+    return Math.max(1, Math.floor(messageDisplayHeight / avgLinesPerMessage));
   }
 
   // Calculate which messages should be displayed
   getMessagesToDisplay() {
-    const visibleCount = this.getVisibleMessageCount() * 2; // Allow for multi-line messages
     const totalMessages = this.messages.length;
     
+    // For very small terminals or when we have few messages, show all messages
+    if (totalMessages === 0) {
+      return [];
+    }
+    
+    // Calculate how many lines we actually have available for message content
+    const { height } = term;
+    const headerHeight = this.updateStatus ? 4 : 3;
+    const inputHeight = 3;
+    const contentHeight = height - headerHeight - inputHeight;
+    const messageDisplayHeight = Math.max(1, contentHeight - 2);
+    
     if (this.viewMode === 'normal' || this.scrollPosition === 0) {
-      // Show the most recent messages
-      const startIndex = Math.max(0, totalMessages - visibleCount);
+      // Show the most recent messages, but ensure we always include the latest message
+      // Calculate how many messages we can reasonably fit
+      const estimatedVisibleCount = this.getVisibleMessageCount();
+      
+      // Always include at least the last message, even in very small terminals
+      const minMessages = 1;
+      const maxMessages = Math.max(minMessages, estimatedVisibleCount);
+      
+      const startIndex = Math.max(0, totalMessages - maxMessages);
       return this.messages.slice(startIndex);
     } else {
       // Show messages based on scroll position
+      const estimatedVisibleCount = this.getVisibleMessageCount();
       const endIndex = totalMessages - this.scrollPosition;
-      const startIndex = Math.max(0, endIndex - visibleCount);
+      const startIndex = Math.max(0, endIndex - estimatedVisibleCount);
       return this.messages.slice(startIndex, endIndex);
     }
   }
@@ -358,18 +403,42 @@ export class UserInterface extends EventEmitter {
     let currentY = startY;
     const maxY = startY + messageDisplayHeight - 1;
     
-    // Render messages from oldest to newest in the visible set
-    for (const message of messagesToShow) {
-      if (currentY > maxY) break;
+    // If we're in normal mode and running out of space, prioritize recent messages
+    if (this.viewMode === 'normal' && messagesToShow.length > 0) {
+      // For very small terminals, render from the end backwards to ensure
+      // the most recent message is always visible
+      const reversedMessages = [...messagesToShow].reverse();
+      const renderedLines = [];
       
-      const messageLines = this.formatMessageToLines(message, maxLineWidth);
+      // First pass: calculate all message lines
+      for (const message of reversedMessages) {
+        const messageLines = this.formatMessageToLines(message, maxLineWidth);
+        renderedLines.unshift(...messageLines);
+      }
       
-      for (const line of messageLines) {
+      // Second pass: render lines, prioritizing the most recent
+      const availableLines = maxY - startY + 1;
+      const linesToRender = renderedLines.slice(-availableLines);
+      
+      for (let i = 0; i < linesToRender.length && currentY <= maxY; i++) {
+        term.moveTo(x, currentY);
+        term(linesToRender[i]);
+        currentY++;
+      }
+    } else {
+      // Normal rendering for scrolling mode or when we have plenty of space
+      for (const message of messagesToShow) {
         if (currentY > maxY) break;
         
-        term.moveTo(x, currentY);
-        term(line);
-        currentY++;
+        const messageLines = this.formatMessageToLines(message, maxLineWidth);
+        
+        for (const line of messageLines) {
+          if (currentY > maxY) break;
+          
+          term.moveTo(x, currentY);
+          term(line);
+          currentY++;
+        }
       }
     }
   }
