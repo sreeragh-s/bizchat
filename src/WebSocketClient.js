@@ -13,7 +13,7 @@ export class WebSocketClient extends EventEmitter {
     this.reconnectDelay = 5000;
     this.username = '';
     this.roomname = '';
-    this.lastSeenTimestamp = 0;
+    // Removed lastSeenTimestamp since we're not using timestamp filtering
   }
 
   async connect(roomname, username) {
@@ -89,9 +89,11 @@ export class WebSocketClient extends EventEmitter {
     } else if (data.quit) {
       this.emit('userLeft', data.quit);
     } else if (data.ready) {
-      this.emit('message', data);
-    } else if (data.timestamp && data.timestamp > this.lastSeenTimestamp) {
-      this.lastSeenTimestamp = data.timestamp;
+      // Emit ready event separately from regular messages
+      this.emit('ready', data);
+    } else if (data.name && data.message) {
+      // Always emit chat messages, don't filter by timestamp
+      // The timestamp filtering was causing messages to be dropped
       this.emit('message', data);
     }
   }

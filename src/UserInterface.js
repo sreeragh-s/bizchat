@@ -18,6 +18,12 @@ export class UserInterface extends EventEmitter {
     // Scrolling state
     this.messageScrollOffset = 0; // How many lines scrolled up from bottom
     this.maxScrollOffset = 0;
+
+    // User suggestion state
+    this.showingSuggestions = false;
+    this.userSuggestions = [];
+    this.selectedSuggestionIndex = 0;
+    this.lastAtIndex = -1;
   }
 
   start() {
@@ -63,6 +69,13 @@ export class UserInterface extends EventEmitter {
     
     term.on('key', (name, matches, data) => {
       if (!this.isActive) return;
+      
+      // Handle quit keys
+      if (name === 'ESCAPE' || name === 'CTRL_C') {
+        this.cleanup();
+        this.emit('quit');
+        return;
+      }
       
       // Handle scrolling keys when not in input mode
       switch (name) {
@@ -158,6 +171,12 @@ export class UserInterface extends EventEmitter {
   }
   
   async startInputLoop() {
+    // Add process-level signal handlers for Ctrl+C
+    process.on('SIGINT', () => {
+      this.cleanup();
+      this.emit('quit');
+    });
+    
     while (this.inputMode && this.isActive) {
       try {
         // Position cursor at input area
@@ -172,29 +191,49 @@ export class UserInterface extends EventEmitter {
         const result = await term.inputField({
           echo: true,
           maxLength: 256,
-          cancelable: true
+          cancelable: true,
+          autoComplete: (input) => this.handleAutoComplete(input),
+          autoCompleteHint: true,
+          autoCompleteMenu: true
         }).promise;
         
         if (result && result.trim()) {
-          this.emit('message', result.trim());
+          const message = result.trim();
+          this.emit('message', message);
+          
+          // Clear input and immediately show the message as pending
           this.currentInput = '';
+          this.addPendingMessage(message);
           this.updateInputDisplay();
+          
           // Auto-scroll to bottom when sending a message
           this.scrollToBottom();
+          this.render();
         }
-        
-        // Re-render to maintain the UI state
-        this.render();
         
       } catch (error) {
         // Handle cancellation or errors
-        if (error.message && error.message.includes('cancel')) {
+        if (error.message && (error.message.includes('cancel') || error.message.includes('interrupt'))) {
           this.cleanup();
           this.emit('quit');
           break;
         }
       }
     }
+  }
+
+  handleAutoComplete(input) {
+    if (!input) return [];
+
+    const lastAtIndex = input.lastIndexOf('@');
+    if (lastAtIndex === -1) return [];
+
+    const searchTerm = input.slice(lastAtIndex + 1).toLowerCase();
+    const usersList = Array.from(this.users);
+    
+    return usersList
+      .filter(user => user.toLowerCase().startsWith(searchTerm))
+      .map(user => input.slice(0, lastAtIndex + 1) + user);
   }
 
   updateInputDisplay() {
@@ -336,6 +375,9 @@ export class UserInterface extends EventEmitter {
       case 'info':
         content = chalk.cyan(msg.text);
         break;
+      case 'pending':
+        content = `${chalk.yellow.bold(msg.name)}: ${chalk.gray(msg.text)} ${chalk.gray('(sending...)')}`;
+        break;
       default:
         content = msg.text;
     }
@@ -420,9 +462,9 @@ export class UserInterface extends EventEmitter {
     term.moveTo(1, inputY);
     term.yellow(promptText);
     
-    // Help text with scroll instructions
+    // Help text with scroll instructions and @ mention hint
     term.moveTo(1, height - 1);
-    term.gray('Type and press ENTER • ↑↓ PgUp/PgDn Home/End to scroll • ESC/Ctrl+C to quit');
+    term.gray('Type and press ENTER • ↑↓ PgUp/PgDn Home/End to scroll • @ for mentions • ESC/Ctrl+C to quit');
     
     // Update input display
     this.updateInputDisplay();
@@ -459,41 +501,77 @@ export class UserInterface extends EventEmitter {
     return fullMessage;
   }
 
-  addChatMessage(name, text, timestamp) {
-    const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
-    this.messages.push({
-      type: 'chat',
-      name,
+  addPendingMessage(text) {
+    // Add a temporary pending message that will be replaced by the server response
+    const pendingMessage = {
+      type: 'pending',
       text,
-      timestamp: time
-    });
+      timestamp: new Date().toLocaleTimeString(),
+      name: 'You',  // Keep as 'You' for display consistency
+      id: Date.now() // Add unique ID to track this message
+    };
+    
+    this.messages.push(pendingMessage);
+    this.trimMessages();
+    this.recalculateScrollLimits();
+    // Auto-scroll to bottom when adding pending message
+    this.scrollToBottom();
+    this.render();
+  }
+
+  addChatMessage(name, text, timestamp) {
+    // Find and remove the pending message if it exists
+    // Look for pending messages from "You" with matching text
+    const pendingIndex = this.messages.findIndex(msg => 
+      msg.type === 'pending' && 
+      msg.text === text &&
+      msg.name === 'You'
+    );
+
+    if (pendingIndex !== -1) {
+      // Replace the pending message with the confirmed one
+      const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+      this.messages[pendingIndex] = {
+        type: 'chat',
+        name,
+        text,
+        timestamp: time
+      };
+    } else {
+      // If no pending message found, add as new message
+      const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+      this.messages.push({
+        type: 'chat',
+        name,
+        text,
+        timestamp: time
+      });
+    }
     
     this.trimMessages();
     
-    // Auto-scroll to bottom for new messages if already at bottom
-    if (this.messageScrollOffset === 0) {
-      this.render();
-    } else {
-      // Just recalculate limits without auto-scroll if user is scrolled up
-      this.recalculateScrollLimits();
-    }
+    // Always render after adding a chat message
+    this.render();
+    
+    // Recalculate scroll limits after rendering
+    this.recalculateScrollLimits();
   }
 
   addSystemMessage(text) {
-    this.messages.push({
+    const systemMessage = {
       type: 'system',
       text,
       timestamp: new Date().toLocaleTimeString()
-    });
+    };
     
+    this.messages.push(systemMessage);
     this.trimMessages();
     
-    // Auto-scroll to bottom for system messages
-    if (this.messageScrollOffset === 0) {
-      this.render();
-    } else {
-      this.recalculateScrollLimits();
-    }
+    // Always render after adding a system message
+    this.render();
+    
+    // Recalculate scroll limits after rendering
+    this.recalculateScrollLimits();
   }
 
   addErrorMessage(text) {
@@ -564,9 +642,20 @@ export class UserInterface extends EventEmitter {
       // Ignore errors during cleanup
     }
     
+    // Clear screen and reset terminal
     term.clear();
     term.moveTo(1, 1);
     term.hideCursor(false); // Show cursor on cleanup
     term.styleReset();
+    
+    // Reset process handlers
+    try {
+      process.removeAllListeners('SIGINT');
+    } catch (e) {
+      // Ignore errors during cleanup
+    }
+    
+    // Graceful exit message
+    console.log('\n👋 Thanks for using BizChat CLI!');
   }
 } 

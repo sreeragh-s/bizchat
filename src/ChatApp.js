@@ -84,6 +84,17 @@ export class ChatApp {
   async startChatInterface() {
     console.log('\n' + chalk.green('🚀 Starting chat interface...\n'));
     
+    // Add process-level signal handlers for graceful shutdown
+    process.on('SIGINT', () => {
+      if (this.ui) {
+        this.ui.cleanup();
+      }
+      if (this.wsClient) {
+        this.wsClient.disconnect();
+      }
+      process.exit(0);
+    });
+    
     // Small delay to let console messages settle
     await new Promise(resolve => setTimeout(resolve, 1000));
     
@@ -106,7 +117,16 @@ export class ChatApp {
     });
 
     this.wsClient.on('message', (data) => {
-      this.handleWebSocketMessage(data);
+      if (data.name && data.message) {
+        this.ui.addChatMessage(data.name, data.message, data.timestamp);
+      }
+    });
+
+    this.wsClient.on('ready', (data) => {
+      // Handle ready event separately
+      this.ui.addSystemMessage('⚠️  WARNING: Participants are random internet users. Names are not authenticated. Chat history is saved.');
+      // Don't show the welcome message immediately - let it come naturally from the server
+      // this.ui.addSystemMessage(`👋 Welcome to #${this.roomname}. Say hi!`);
     });
 
     this.wsClient.on('userJoined', (username) => {
@@ -151,10 +171,7 @@ export class ChatApp {
   }
 
   handleWebSocketMessage(data) {
-    if (data.ready) {
-      this.ui.addSystemMessage('⚠️  WARNING: Participants are random internet users. Names are not authenticated. Chat history is saved.');
-      this.ui.addSystemMessage(`👋 Welcome to #${this.roomname}. Say hi!`);
-    } else if (data.name && data.message) {
+    if (data.name && data.message) {
       this.ui.addChatMessage(data.name, data.message, data.timestamp);
     }
   }
