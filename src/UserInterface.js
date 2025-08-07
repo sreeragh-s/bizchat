@@ -255,7 +255,7 @@ export class UserInterface extends EventEmitter {
           cancelable: true,
           autoComplete: (input) => this.handleAutoComplete(input),
           autoCompleteHint: true,
-          autoCompleteMenu: true
+          autoCompleteMenu: false
         }).promise;
         
         if (result && result.trim()) {
@@ -292,9 +292,11 @@ export class UserInterface extends EventEmitter {
     const searchTerm = input.slice(lastAtIndex + 1).toLowerCase();
     const usersList = Array.from(this.users);
     
-    return usersList
+    const completions = usersList
       .filter(user => user.toLowerCase().startsWith(searchTerm))
       .map(user => input.slice(0, lastAtIndex + 1) + user);
+    
+    return completions;
   }
 
   updateInputDisplay() {
@@ -549,7 +551,7 @@ export class UserInterface extends EventEmitter {
     
     // Help text with scroll instructions and @ mention hint
     term.moveTo(1, height - 1);
-    term.gray('Type and press ENTER • ↑↓ PgUp/PgDn Home/End to scroll • @ for mentions • ESC/Ctrl+C to quit');
+    term.gray('Type and press ENTER • ↑↓ PgUp/PgDn Home/End to scroll • ESC/Ctrl+C to quit');
     
     // Update input display
     this.updateInputDisplay();
