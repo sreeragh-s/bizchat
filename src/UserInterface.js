@@ -15,6 +15,7 @@ export class UserInterface extends EventEmitter {
     this.isActive = false;
     this.maxMessages = 500;
     this.inputMode = false;
+    this.hasRendered = false; // Track if we've done initial render
     
     // New simplified scrolling state
     this.viewMode = 'normal'; // 'normal' or 'scrolling'
@@ -42,6 +43,9 @@ export class UserInterface extends EventEmitter {
     // Handle terminal resize
     term.on('resize', () => {
       if (this.isActive) {
+        // Force a full clear and re-render on resize
+        this.hasRendered = false;
+        
         // When resizing, ensure we stay at the bottom if we were in normal mode
         // or preserve scroll position appropriately
         if (this.viewMode === 'normal') {
@@ -319,8 +323,12 @@ export class UserInterface extends EventEmitter {
 
     const { width, height } = term;
     
-    // Clear screen
-    term.clear();
+    // Instead of clearing the entire screen, selectively update areas
+    // Only clear on first render or terminal resize
+    if (!this.hasRendered) {
+      term.clear();
+      this.hasRendered = true;
+    }
     
     // Header
     this.renderHeader();
@@ -381,6 +389,12 @@ export class UserInterface extends EventEmitter {
   }
 
   renderMessages(x, y, width, height) {
+    // Clear the message area to prevent artifacts from previous renders
+    for (let i = 0; i < height; i++) {
+      term.moveTo(x, y + i);
+      term(' '.repeat(width - 1));
+    }
+    
     // Messages header
     term.moveTo(x, y);
     term.bold.blue('Messages');
@@ -517,6 +531,12 @@ export class UserInterface extends EventEmitter {
   }
 
   renderUsers(x, y, width, height) {
+    // Clear the users area to prevent artifacts from previous renders
+    for (let i = 0; i < height; i++) {
+      term.moveTo(x, y + i);
+      term(' '.repeat(width - 1));
+    }
+    
     // Users header
     term.moveTo(x, y);
     term.bold.green('Users');
