@@ -6,6 +6,7 @@ import figlet from 'figlet';
 import gradient from 'gradient-string';
 import { ChatApp } from './src/ChatApp.js';
 import { ConfigManager } from './src/ConfigManager.js';
+import { UpdateChecker } from './src/UpdateChecker.js';
 
 // ASCII Art Header
 console.log(
@@ -21,12 +22,25 @@ console.log(
 console.log(chalk.cyan.bold('\n🚀 Terminal-based chat client for workers-chat\n'));
 
 const configManager = new ConfigManager();
+const updateChecker = new UpdateChecker();
+
+// Check for updates on startup (non-blocking)
+(async () => {
+  try {
+    const updateInfo = await updateChecker.checkForUpdates();
+    if (updateInfo && updateInfo.hasUpdate) {
+      updateChecker.displayUpdateNotification(updateInfo);
+    }
+  } catch (error) {
+    // Silently ignore update check errors on startup
+  }
+})();
 
 // Set program info
 program
   .name('bizchat')
   .description('CLI client for workers-chat')
-  .version('1.0.0');
+  .version('1.0.4');
 
 // Config command
 program
@@ -36,7 +50,8 @@ program
   .option('--get-username', 'get current global username')
   .option('--list', 'list all configuration')
   .option('--clear', 'clear all configuration')
-  .action((options) => {
+  .option('--check-updates', 'check for available updates')
+  .action(async (options) => {
     if (options.setUsername) {
       if (options.setUsername.length > 32) {
         console.error(chalk.red('❌ Username must be 32 characters or less'));
@@ -56,6 +71,18 @@ program
       } else {
         console.log(chalk.yellow('No username configured'));
         console.log(chalk.gray('Use: bizchat config --set-username <username>'));
+      }
+    } else if (options.checkUpdates) {
+      console.log(chalk.cyan('🔍 Checking for updates...'));
+      try {
+        const updateInfo = await updateChecker.checkForUpdates();
+        if (updateInfo && updateInfo.hasUpdate) {
+          updateChecker.displayUpdateNotification(updateInfo);
+        } else {
+          console.log(chalk.green('✅ You are running the latest version!'));
+        }
+      } catch (error) {
+        console.error(chalk.red('❌ Failed to check for updates:'), error.message);
       }
     } else if (options.list) {
       const config = configManager.getAllConfig();
@@ -94,7 +121,7 @@ program
         const globalUsername = configManager.getUsername();
         if (globalUsername) {
           options.username = globalUsername;
-          console.log(chalk.gray(`Using global username: ${globalUsername}`));
+          console.log(chalk.gray(`Hey ${globalUsername}`));
         } else {
           console.log(chalk.yellow('⚠️  No username configured!'));
           console.log(chalk.white('Set up your global username first:'));
@@ -104,7 +131,10 @@ program
         }
       }
 
-      const app = new ChatApp(options);
+      const app = new ChatApp({
+        ...options,
+        updateChecker // Pass the update checker to the chat app
+      });
       await app.start();
     } catch (error) {
       console.error(chalk.red('❌ Fatal error:'), error.message);

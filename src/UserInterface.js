@@ -11,6 +11,7 @@ export class UserInterface extends EventEmitter {
     this.users = new Set();
     this.currentInput = '';
     this.status = 'Initializing...';
+    this.updateStatus = null; // New property for update status
     this.isActive = false;
     this.maxMessages = 500;
     this.inputMode = false;
@@ -143,7 +144,7 @@ export class UserInterface extends EventEmitter {
 
   recalculateScrollLimits() {
     const { width, height } = term;
-    const headerHeight = 3;
+    const headerHeight = this.updateStatus ? 4 : 3; // Adjust for update status
     const inputHeight = 3;
     const contentHeight = height - headerHeight - inputHeight;
     const messageAreaWidth = Math.floor(width * 0.75);
@@ -274,7 +275,7 @@ export class UserInterface extends EventEmitter {
 
   renderHeader() {
     const { width } = term;
-    const headerHeight = 3;
+    let headerHeight = 3;
     
     // Status bar
     term.moveTo(1, 1);
@@ -284,14 +285,23 @@ export class UserInterface extends EventEmitter {
     term.moveTo(width - 20, 1);
     term.bgBlue.white(`Users: ${this.users.size} `);
     
+    // Update status bar (if update is available)
+    if (this.updateStatus) {
+      term.moveTo(1, 2);
+      term.bgYellow.black(`${' '.repeat(width)}`);
+      term.moveTo(1, 2);
+      term.bgYellow.black(` 🚀 ${this.updateStatus}`);
+      headerHeight = 4;
+    }
+    
     // Border
-    term.moveTo(1, 2);
+    term.moveTo(1, headerHeight - 1);
     term.cyan('─'.repeat(width));
   }
 
   renderMainContent() {
     const { width, height } = term;
-    const headerHeight = 3;
+    const headerHeight = this.updateStatus ? 4 : 3;
     const inputHeight = 3;
     const contentHeight = height - headerHeight - inputHeight;
     const messageAreaWidth = Math.floor(width * 0.75);
@@ -520,13 +530,15 @@ export class UserInterface extends EventEmitter {
   }
 
   addChatMessage(name, text, timestamp) {
-    // Find and remove the pending message if it exists
-    // Look for pending messages from "You" with matching text
-    const pendingIndex = this.messages.findIndex(msg => 
-      msg.type === 'pending' && 
-      msg.text === text &&
-      msg.name === 'You'
-    );
+    // Find and remove the most recent pending message if it exists and matches
+    // Look for pending messages with matching text (regardless of name for better matching)
+    let pendingIndex = -1;
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].type === 'pending' && this.messages[i].text === text) {
+        pendingIndex = i;
+        break; // Found the most recent matching pending message
+      }
+    }
 
     if (pendingIndex !== -1) {
       // Replace the pending message with the confirmed one
@@ -620,6 +632,11 @@ export class UserInterface extends EventEmitter {
 
   setStatus(status) {
     this.status = status;
+    this.render();
+  }
+
+  setUpdateStatus(updateStatus) {
+    this.updateStatus = updateStatus;
     this.render();
   }
 

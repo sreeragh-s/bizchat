@@ -17,6 +17,7 @@ export class ChatApp {
     
     this.username = options.username || '';
     this.roomname = options.room || '';
+    this.updateChecker = options.updateChecker || null;
     
     this.ui = null;
     this.wsClient = null;
@@ -47,9 +48,8 @@ export class ChatApp {
   showWelcome() {
     console.log(
       boxen(
-        chalk.cyan.bold('Welcome to BizChat CLI!') + '\n\n' +
-        chalk.white('A modern terminal-based chat client\n') +
-        chalk.gray('Connect to workers-chat rooms from your terminal'),
+        chalk.cyan.bold('Welcome to BizChat!') + '\n\n' +
+        chalk.gray('Connect to chat rooms from your terminal'),
         {
           padding: 1,
           margin: 1,
@@ -100,6 +100,11 @@ export class ChatApp {
     
     // Initialize UI
     this.ui = new UserInterface();
+    
+    // Check for updates in the background and show in UI if available
+    if (this.updateChecker) {
+      this.checkForUpdatesInBackground();
+    }
     
     // Setup WebSocket connection
     this.wsClient.on('connected', () => {
@@ -168,6 +173,40 @@ export class ChatApp {
     return new Promise(() => {
       // This promise never resolves, keeping the process running
     });
+  }
+
+  async checkForUpdatesInBackground() {
+    try {
+      // First check for cached updates
+      const cachedUpdate = this.updateChecker.getCachedUpdate();
+      if (cachedUpdate && cachedUpdate.hasUpdate) {
+        this.showUpdateInUI(cachedUpdate);
+        return;
+      }
+
+      // Then do async check for new updates
+      const updateInfo = await this.updateChecker.checkForUpdatesAsync();
+      if (updateInfo && updateInfo.hasUpdate) {
+        this.showUpdateInUI(updateInfo);
+      }
+    } catch (error) {
+      // Silently ignore update check errors in the UI
+    }
+  }
+
+  showUpdateInUI(updateInfo) {
+    if (this.ui && updateInfo && updateInfo.hasUpdate) {
+      // Add an info message about the update
+      this.ui.addInfoMessage(
+        `🚀 Update available: v${updateInfo.latestVersion} (current: v${updateInfo.currentVersion}). Run 'npm install -g bizchat' to update.`
+      );
+      
+      // Update status to show update is available
+      const updateStatus = this.updateChecker.getUpdateStatusMessage(updateInfo);
+      if (updateStatus) {
+        this.ui.setUpdateStatus(updateStatus);
+      }
+    }
   }
 
   handleWebSocketMessage(data) {
