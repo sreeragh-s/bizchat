@@ -3,23 +3,20 @@
 import { program } from 'commander';
 import chalk from 'chalk';
 import figlet from 'figlet';
-import gradient from 'gradient-string';
 import { ChatApp } from './src/ChatApp.js';
 import { ConfigManager } from './src/ConfigManager.js';
 import { UpdateChecker } from './src/UpdateChecker.js';
 
 // ASCII Art Header
 console.log(
-  gradient.rainbow(
-    figlet.textSync('BizChat CLI', {
+    figlet.textSync('Bizchat', {
       font: 'Small',
       horizontalLayout: 'default',
       verticalLayout: 'default'
     })
-  )
 );
 
-console.log(chalk.cyan.bold('\n🚀 Terminal-based chat client for workers-chat\n'));
+console.log(chalk.cyan.bold('\n🚀 Terminal-based chat client \n'));
 
 const configManager = new ConfigManager();
 const updateChecker = new UpdateChecker();
