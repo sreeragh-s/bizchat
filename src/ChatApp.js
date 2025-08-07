@@ -129,7 +129,7 @@ export class ChatApp {
 
     this.wsClient.on('ready', (data) => {
       // Handle ready event separately
-      this.ui.addSystemMessage('⚠️  WARNING: Participants are random internet users. Names are not authenticated. Chat history is saved.');
+      this.ui.addSystemMessage('⚠️  WARNING: Participants are random internet users.');
       // Don't show the welcome message immediately - let it come naturally from the server
       // this.ui.addSystemMessage(`👋 Welcome to #${this.roomname}. Say hi!`);
     });
