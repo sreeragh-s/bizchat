@@ -4,9 +4,24 @@
   "description": "CLI client for workers-chat",
   "main": "index.js",
   "type": "module",
+  "bin": {
+    "bizchat": "./index.js"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js"
+  },
+  "keywords": [
+    "chat",
+    "cli",
+    "terminal",
+    "websocket",
+    "workers-chat"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
   },
   "dependencies": {
     "commander": "^11.1.0",
