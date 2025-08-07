@@ -9,7 +9,9 @@ import { RoomManager } from './RoomManager.js';
 export class ChatApp {
   constructor(options = {}) {
     this.options = options;
-    this.hostname = options.host || 'https://biz-chat-server.sreeragh-bizmo.workers.dev';
+    // Extract hostname without protocol for WebSocket URL construction
+    const rawHost = options.host || 'biz-chat-server.sreeragh-bizmo.workers.dev';
+    this.hostname = rawHost.replace(/^https?:\/\//, ''); // Remove protocol if present
     this.protocol = 'https:';
     this.wsProtocol = 'wss:';
     
