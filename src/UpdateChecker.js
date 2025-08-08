@@ -7,12 +7,12 @@ export class UpdateChecker {
   constructor() {
     this.configManager = new ConfigManager();
     this.packageName = 'bizchat';
-    this.currentVersion = '1.0.4'; // This should match package.json
+    this.currentVersion = '2.0.3'; // This should match package.json
     this.checkInterval = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
   }
 
   /**
-   * Check for updates and return update information
+   * Check for updates and return npupdate information
    */
   async checkForUpdates() {
     try {

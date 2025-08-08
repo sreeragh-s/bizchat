@@ -1,6 +1,6 @@
 {
   "name": "bizchat",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "CLI client for workers-chat",
   "main": "index.js",
   "type": "module",

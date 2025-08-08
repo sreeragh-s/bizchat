@@ -37,7 +37,7 @@ const updateChecker = new UpdateChecker();
 program
   .name('bizchat')
   .description('CLI client for workers-chat')
-  .version('1.0.4');
+  .version('2.0.3');
 
 // Config command
 program
